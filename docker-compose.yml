@@ -1,0 +1,94 @@
+version: "3.7"
+
+services:
+  grafana:
+    image: grafana/grafana-oss:latest
+    container_name: grafana
+    volumes:
+      - ./data/grafana:/var/lib/grafana
+    restart: unless-stopped
+    env_file:
+      - ".env"
+    networks:
+      - proxy
+    labels:
+      # Enable Traefik for this container
+      - "traefik.enable=true"
+
+      # Basic Authentication Middleware Configuration
+      - "traefik.http.middlewares.grafana-auth.basicauth.users=${DASHBOARD_USERNAME}:${DASHBOARD_PASSWORD}"
+      - "traefik.http.routers.grafana.middlewares=grafana-auth"
+
+      # HTTPS Secure Router Configuration
+      - "traefik.http.routers.grafana.entrypoints=https"
+      - "traefik.http.routers.grafana.rule=Host(`grafana.${DOMAIN_NAME}`)"
+      - "traefik.http.routers.grafana.tls=true"
+      - "traefik.http.routers.grafana.service=grafana-app"
+      - "traefik.http.services.grafana-app.loadbalancer.server.port=3000"
+
+      # Docker Network Configuration
+      - "traefik.docker.network=proxy"
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    volumes:
+      - ./data/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./data/prometheus:/prometheus
+    command: "--config.file=/etc/prometheus/prometheus.yml"
+    restart: unless-stopped
+    networks:
+      - proxy
+      - metrics
+    env_file:
+      - ".env"
+    labels:
+      # Enable Traefik for this container
+      - "traefik.enable=true"
+
+      # Basic Authentication Middleware Configuration
+      - "traefik.http.middlewares.prometheus-auth.basicauth.users=${DASHBOARD_USERNAME}:${DASHBOARD_PASSWORD}"
+      - "traefik.http.routers.prometheus.middlewares=prometheus-auth"
+
+      # HTTPS Secure Router Configuration
+      - "traefik.http.routers.prometheus.entrypoints=https"
+      - "traefik.http.routers.prometheus.rule=Host(`prometheus.${DOMAIN_NAME}`)"
+      - "traefik.http.routers.prometheus.tls=true"
+      - "traefik.http.routers.prometheus.service=prometheus-app"
+      - "traefik.http.services.prometheus-app.loadbalancer.server.port=9090"
+
+      # Docker Network Configuration
+      - "traefik.docker.network=proxy"
+      
+  node_exporter:
+    image: quay.io/prometheus/node-exporter:v1.5.0
+    container_name: node_exporter
+    command: "--path.rootfs=/host"
+    pid: host
+    restart: unless-stopped
+    volumes:
+      - /:/host:ro,rslave
+    networks:
+      - metrics
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.47.0     
+    container_name: cadvisor
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    devices:
+      - /dev/kmsg
+    privileged: true
+    restart: unless-stopped
+    networks:
+      - metrics
+
+networks:
+  metrics:
+    driver: bridge
+  proxy:
+    external: true
